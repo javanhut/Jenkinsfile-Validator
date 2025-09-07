@@ -23,6 +23,19 @@ This will prompt you for:
 - Username
 - API Token
 
+### Update Credentials
+
+To update your credentials interactively:
+
+```bash
+jenkinsfile-validator refresh
+```
+
+This command allows you to:
+- Update all fields at once
+- Update individual fields selectively
+- View current configuration values
+
 ### Test Connection
 
 Verify that your credentials and Jenkins URL are correct:
@@ -44,6 +57,7 @@ jenkinsfile-validator validate path/to/Jenkinsfile
 ## Commands
 
 - `config` - Set up or update Jenkins connection details
+- `refresh` - Update credentials with interactive field selection
 - `test` - Test connection to Jenkins using configured credentials
 - `validate` - Validate a Jenkinsfile against your Jenkins instance
 

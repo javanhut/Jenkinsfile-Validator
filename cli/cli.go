@@ -49,6 +49,13 @@ var testCmd = &cobra.Command{
 	RunE:  testConnection,
 }
 
+var refreshCmd = &cobra.Command{
+	Use:   "refresh",
+	Short: "Refresh Jenkins credentials",
+	Long:  "Update Jenkins credentials interactively with options to change individual fields",
+	Run:   refreshCredentials,
+}
+
 func testConnection(cmd *cobra.Command, args []string) error {
 	config, err := loadConfig()
 	if err != nil {
@@ -188,7 +195,7 @@ func validateFile(cmd *cobra.Command, args []string) error {
 }
 
 func init() {
-	rootCmd.AddCommand(configCmd, validateCmd, testCmd)
+	rootCmd.AddCommand(configCmd, validateCmd, testCmd, refreshCmd)
 }
 
 func Execute() {
@@ -259,6 +266,27 @@ func promptForInput(prompt, defaultValue string) string {
 	return input
 }
 
+func validateJenkinsURL(jenkinsURL string) error {
+	if jenkinsURL == "" {
+		return fmt.Errorf("URL cannot be empty")
+	}
+
+	u, err := url.Parse(jenkinsURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL format: %w", err)
+	}
+
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("URL must start with http:// or https://")
+	}
+
+	if u.Host == "" {
+		return fmt.Errorf("URL must contain a valid host")
+	}
+
+	return nil
+}
+
 func configureSettings(cmd *cobra.Command, args []string) {
 	config, err := loadConfig()
 	if err != nil {
@@ -270,11 +298,7 @@ func configureSettings(cmd *cobra.Command, args []string) {
 
 	if config.JenkinsURL != "" || config.Username != "" || config.Token != "" {
 		fmt.Println("\nExisting configuration found:")
-		fmt.Printf("Jenkins URL: %s\n", config.JenkinsURL)
-		fmt.Printf("Username: %s\n", config.Username)
-		if config.Token != "" {
-			fmt.Printf("Token: %s\n", strings.Repeat("*", len(config.Token)))
-		}
+		displayCurrentConfig(config)
 		fmt.Println()
 
 		update := promptForInput("Do you want to update the configuration? (y/N)", "n")
@@ -285,13 +309,151 @@ func configureSettings(cmd *cobra.Command, args []string) {
 		fmt.Println()
 	}
 
-	config.JenkinsURL = promptForInput("Jenkins URL", config.JenkinsURL)
-	config.Username = promptForInput("Username", config.Username)
-	config.Token = promptForInput("API Token", "")
+	updateAllFields(config)
 
 	if err := saveConfig(config); err != nil {
 		log.Fatalf("Error saving config: %v", err)
 	}
 
 	fmt.Println("\nConfiguration saved successfully!")
+}
+
+func refreshCredentials(cmd *cobra.Command, args []string) {
+	config, err := loadConfig()
+	if err != nil {
+		log.Fatalf("Error loading config: %v", err)
+	}
+
+	fmt.Println("Refresh Jenkins Credentials")
+	fmt.Println("===========================")
+
+	if config.JenkinsURL == "" && config.Username == "" && config.Token == "" {
+		fmt.Println("\nNo existing configuration found. Setting up new configuration...")
+		fmt.Println()
+		updateAllFields(config)
+	} else {
+		fmt.Println("\nCurrent configuration:")
+		displayCurrentConfig(config)
+		fmt.Println()
+
+		choice := promptForInput("What would you like to update?\n1. All fields\n2. Individual fields\n3. Cancel\nChoice (1-3)", "2")
+
+		switch choice {
+		case "1":
+			fmt.Println("\nUpdating all fields...")
+			updateAllFields(config)
+		case "2":
+			fmt.Println()
+			updateIndividualFields(config)
+		case "3":
+			fmt.Println("Configuration unchanged.")
+			return
+		default:
+			fmt.Println("Invalid choice. Configuration unchanged.")
+			return
+		}
+	}
+
+	if err := saveConfig(config); err != nil {
+		log.Fatalf("Error saving config: %v", err)
+	}
+
+	fmt.Println("\nConfiguration saved successfully!")
+}
+
+func displayCurrentConfig(config *ConfigDetails) {
+	fmt.Printf("Jenkins URL: %s\n", config.JenkinsURL)
+	fmt.Printf("Username: %s\n", config.Username)
+	if config.Token != "" {
+		fmt.Printf("Token: %s\n", strings.Repeat("*", len(config.Token)))
+	} else {
+		fmt.Println("Token: (not set)")
+	}
+}
+
+func updateAllFields(config *ConfigDetails) {
+	for {
+		newURL := promptForInput("Jenkins URL", config.JenkinsURL)
+		if err := validateJenkinsURL(newURL); err != nil {
+			fmt.Printf("Invalid URL: %s\n", err)
+			continue
+		}
+		config.JenkinsURL = newURL
+		break
+	}
+
+	for {
+		newUsername := promptForInput("Username", config.Username)
+		if newUsername == "" {
+			fmt.Println("Username cannot be empty")
+			continue
+		}
+		config.Username = newUsername
+		break
+	}
+
+	tokenPrompt := "API Token"
+	if config.Token != "" {
+		tokenPrompt = fmt.Sprintf("API Token (press Enter to keep current)")
+	}
+	newToken := promptForInput(tokenPrompt, "")
+	if newToken != "" {
+		config.Token = newToken
+	}
+}
+
+func updateIndividualFields(config *ConfigDetails) {
+	for {
+		fmt.Println("Select field to update:")
+		fmt.Println("1. Jenkins URL")
+		fmt.Println("2. Username")
+		fmt.Println("3. API Token")
+		fmt.Println("4. Done")
+
+		choice := promptForInput("Choice (1-4)", "")
+
+		switch choice {
+		case "1":
+			fmt.Printf("\nCurrent Jenkins URL: %s\n", config.JenkinsURL)
+			for {
+				newURL := promptForInput("New Jenkins URL", config.JenkinsURL)
+				if err := validateJenkinsURL(newURL); err != nil {
+					fmt.Printf("Invalid URL: %s\n", err)
+					continue
+				}
+				config.JenkinsURL = newURL
+				fmt.Println("Jenkins URL updated.")
+				break
+			}
+			fmt.Println()
+		case "2":
+			fmt.Printf("\nCurrent Username: %s\n", config.Username)
+			for {
+				newUsername := promptForInput("New Username", config.Username)
+				if newUsername == "" {
+					fmt.Println("Username cannot be empty")
+					continue
+				}
+				config.Username = newUsername
+				fmt.Println("Username updated.")
+				break
+			}
+			fmt.Println()
+		case "3":
+			fmt.Printf("\nCurrent Token: %s\n", strings.Repeat("*", len(config.Token)))
+			newToken := promptForInput("New API Token (press Enter to keep current)", "")
+			if newToken != "" {
+				config.Token = newToken
+				fmt.Println("API Token updated.")
+			} else {
+				fmt.Println("API Token unchanged.")
+			}
+			fmt.Println()
+		case "4":
+			return
+		default:
+			fmt.Println("Invalid choice. Please try again.")
+			fmt.Println()
+		}
+	}
 }
